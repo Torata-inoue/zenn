@@ -66,9 +66,10 @@ class BarController extends Controller
 - PHPStanのレベル: 8(後述しますが、レベル8にすることでnullのチェックができます)
 
 # 実装
+完成系だけみたい人は[こちら](/articles/extend-laravel-with-phpstan#完成系)
 ## 達成したい要件
 今回は例にあげたバリデーションクラスを拡張して以下の要件を達成していきます
-1. `rules()`配列のキーに存在する文字列のみ or nullのみ`validated()`の第一引数に渡されるようにする
+1. `rules()`配列のキーに存在する文字列 or nullのみ`validated()`の第一引数に渡されるようにする
 2. `validated()`の引数によって変わる戻り値の型を明確にする
 
 ## 準備
@@ -93,7 +94,7 @@ abstract class BaseRequest extends FormRequest
 ここからは型を確認できる`\PHPStan\dumpType()`やエディタでPHPStanのエラーを確認できる拡張を使いながら進めると理解しやすいと思います。
 :::
 
-## 1. `rules()`配列のキーに存在する文字列のみ or nullのみ`validated()`の第一引数に渡されるようにする
+## 1. `rules()`配列のキーに存在する文字列 or nullのみ`validated()`の第一引数に渡されるようにする
 これを実現するにはどういう配列が渡されているかをPHPStanに伝える必要があります。
 そのためにPHPStanの[ジェネリクス](https://phpstan.org/writing-php-code/phpdoc-types#generics)を使います
 ```diff php: BaseRequest.php
@@ -102,6 +103,8 @@ abstract class BaseRequest extends FormRequest
 +  */
 abstract class BaseRequest extends FormRequest
 ```
+ジェネリクスを利用することでTに任意の型を渡すことができます。
+次に`BarRequest`クラスで`BaseRequest`クラスで定義したジェネリクス`T`に今回利用する配列の型を渡します。
 ```diff php: BarRequest.php
 + /**
 +  * @extends BaseRequest<array{
@@ -113,7 +116,7 @@ abstract class BaseRequest extends FormRequest
 abstract class BaseRequest extends FormRequest
 ```
 これで`BaseRequest`に`rules()`で使用される配列を伝えることができました。
-次に`BaseRequest`の`validated()`の第一引数の`$key`にとりうる値を制限します
+次に`BaseRequest::validated()`の第一引数の`$key`にとりうる値を制限します
 ```diff php: BaseRequest.php
 + /**
 +  * @param key-of<T>|null $key
@@ -123,8 +126,8 @@ public function validated($key = null, $default = null)
     return parent::validated($key, $default);
 }
 ```
-これで`$key`にはTに渡された配列のkeyの文字列であるhoge, piyo, fugaかデフォルトのnullのみに制限することができました。
-試しにBarControllerクラスでkeyを間違えた時がどうなるか試してみましょう
+これで`$key`にはTに渡された配列のキーの文字列であるhoge, piyo, fugaかデフォルトのnullのみに制限することができました。
+試しにBarControllerクラスで`$key`をタイポした時にどうなるか試してみましょう
 ```php: BarController.php
 class BarController extends Controller
 {
@@ -139,7 +142,7 @@ class BarController extends Controller
 }
 ```
 配列のキー以外の文字列が渡された時にPHPStanでエラーを出すことができましたね👏
-これで1の「`rules()`配列のキーに存在する文字列のみ or nullのみ`validated()`の第一引数に渡されるようにする」を達成することができました
+これで「`rules()`配列のキーに存在する文字列 or nullのみ`validated()`の第一引数に渡されるようにする」を達成することができました
 
 ## 2. `validated()`の引数によって変わる戻り値の型を明確にする
 次に`validated()`の引数によって変わる戻り値の型をPHPStanに伝えられるようにします。
@@ -176,7 +179,8 @@ public function validated($key = null, $default = null)
 ```
 これで`$key`が指定されたときの戻り値の型を指定できましたが、`$key`が指定されていない時にTが戻ることを指定できなくなってしまいました。
 これを解決するためにPHPStanの[Conditional return type](https://phpstan.org/writing-php-code/phpdoc-types#conditional-return-types)を使って型による条件分岐を行います。
-さらに`key-of<T>`が何回も出るようになったので`K`というテンプレートに置き換えます
+Conditional return typeを利用することで型による条件分岐を三項演算のような形で実現することができます。
+さらに`key-of<T>`が何回も出るようになったので`key-of<T>`を`K`というテンプレートに置き換えます
 ```diff php: BaseRequest.php
 /**
 - * @param key-of<T>|null $key
@@ -195,21 +199,22 @@ class BarController extends Controller
     public function __invoke(BarRequest $request): void
     {
         $all = $request->validated();
-        $this->useStringValue($all['piyo'] ?? null); // OK
+        $this->useStringOrNull($all['piyo'] ?? null); // OK
 
         $piyo = $request->validated('piyo');
-        $this->useStringValue($piyo); // OK
+        $this->useStringOrNull($piyo); // OK
 
         $hoge = $request->validated('hoge');
-        $this->useStringValue($hoge); //Parameter #1 $piyo of method {{クラス名}}::useStringValue() expects string|null, int|null given.
+        $this->useStringOrNull($hoge); //Parameter #1 $piyo of method {{クラス名}}::useStringValue() expects string|null, int|null given.
     }
 
-    private function useStringValue(?string $piyo): void
+    private function useStringOrNull(?string $piyo): void
     {
         //
     }
 }
 ```
+piyoが渡された時には`string|null`が、hogeが渡された時には`int|null`が戻ってくることを確認できました。
 
 ### `$default`が指定されている時はT配列の`$key`の値の型か`$default`の型
 次に`$default`が渡されている時のケースを考えます。
@@ -285,10 +290,11 @@ class BarController extends Controller
         $piyo = $request->validated('piyo');
         $this->useStringValue($piyo); // Parameter #1 $piyo of method {{クラス名}}::useStringValue() expects string, string|null given.
 
-        // hogeとpiyoは型が違う
+        // $hogeの型はint|null
         $hoge = $request->validated('hoge');
         $this->useStringValue($hoge);  // Parameter #1 $piyo of method App\Http\Controllers\Generics\BarController::useStringValue() expects string, int|null given.
         
+        // $piyo2の型はstring
         $piyo2 = $request->validated('piyo', 'default');
         $this->useStringValue($piyo2);  // OK
     }
@@ -301,7 +307,7 @@ class BarController extends Controller
 ```
 これで見事戻り値の厳密な型チェックを行い、最後のパターンのみエラーが出ないようにすることができました👏
 :::message
-2番目のnullをなりうる値のチェックはPHPStanのレベルが8でないと無視されてしまいます
+2番目のnullになりうる値のチェックはPHPStanのレベルが8以上でないと無視されます
 :::
 
 # まとめ
