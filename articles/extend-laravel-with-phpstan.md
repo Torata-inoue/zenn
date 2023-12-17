@@ -3,7 +3,7 @@ title: "LaravelのクラスをPHPStanで拡張して使いやすく安全なク�
 emoji: "🏃️"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["Laravel", "PHP", "PHPStan"]
-published: false
+published: true
 ---
 この記事は Laravel Advent Calendar 2023 18日目の記事です。
 https://qiita.com/advent-calendar/2023/laravel
